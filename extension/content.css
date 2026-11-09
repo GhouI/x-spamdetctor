@@ -1,0 +1,5 @@
+.xbf-hidden { display: none !important; }
+.xbf-blur { filter: blur(6px); opacity: .5; }
+.xbf-note { font: 13px system-ui, sans-serif; color: #8b98a5; padding: 8px 16px; border-bottom: 1px solid rgba(128,128,128,.25); }
+.xbf-note button { margin-left: 6px; background: none; border: 1px solid #536471; color: #1d9bf0; border-radius: 12px; padding: 1px 10px; cursor: pointer; }
+#xbf-badge { position: fixed; bottom: 12px; left: 12px; z-index: 9999; background: #15202b; color: #e7e9ea; font: 12px system-ui, sans-serif; padding: 6px 10px; border-radius: 14px; border: 1px solid #38444d; }

@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><title>X Bot Reply Filter</title>
+<style>body{font:14px system-ui,sans-serif;width:320px;padding:12px;background:#15202b;color:#e7e9ea}label{display:block;margin:10px 0 4px}input,select{width:100%;box-sizing:border-box;padding:6px;background:#273340;color:#e7e9ea;border:1px solid #38444d;border-radius:6px}button{margin-top:12px;padding:6px 14px;background:#1d9bf0;color:#fff;border:0;border-radius:14px;cursor:pointer}#s{margin-left:8px;color:#00ba7c}</style></head>
+<body><h3>🤖 X Bot Reply Filter</h3>
+<label><input type="checkbox" id="enabled" style="width:auto"> Enabled</label>
+<label>OpenAI API key</label><input id="apiKey" type="password" placeholder="sk-...">
+<label>Decisions model</label><input id="model">
+<label>Hide threshold (0–1)</label><input id="threshold" type="number" min="0" max="1" step="0.05">
+<label>Action</label><select id="mode"><option value="hide">Hide (with “Show” button)</option><option value="blur">Blur</option></select>
+<button id="save">Save</button><span id="s"></span>
+<script src="options.js"></script></body></html>
