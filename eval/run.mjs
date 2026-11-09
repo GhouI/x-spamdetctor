@@ -110,6 +110,27 @@ const T = {
       return { choice: 1 - pHuman(g("kind")), text: g("spam_text").probability, acct: g("automated").probability };
     });
   },
+  // C3. Fable's split design: text predicates WITHOUT account stats (call 1) +
+  //     an account-only predicate WITHOUT the reply (call 2), combined downstream.
+  async dec_split() {
+    return cachedRun("dec_split", async r => {
+      const [t, a] = await Promise.all([
+        api("decisions", { model: "gpt-6-luna",
+          input: `Original post on X by ${post(r).author}:\n${post(r).text}\n\nReply:\n${r.text || "[media only]"}`,
+          questions: [
+            { type: "predicate", name: "promo", instructions: "The reply promotes a product, token, coin, link, project, service or someone's profile." },
+            { type: "predicate", name: "generic", instructions: "The reply could be posted unchanged under almost any post; it does not depend on what this post says." },
+            { type: "predicate", name: "specific", instructions: "The reply engages with specific details or claims of the post (agreeing, disagreeing, asking, joking about them)." },
+            { type: "predicate", name: "paraphrase", instructions: "The reply mostly restates or paraphrases the post in polished, generic language, possibly with a compliment or a closing question, adding nothing new." }
+          ] }),
+        api("decisions", { model: "gpt-6-luna",
+          input: `X account: ${describeAuthor(r.user)}`,
+          questions: [{ type: "predicate", name: "automated", instructions: "These account stats indicate an automated, bot, spam or engagement-farming account rather than an ordinary person." }] })
+      ]);
+      const g = (j, n) => j.answers.find(x => x.name === n).probability;
+      return { promo: g(t, "promo"), generic: g(t, "generic"), specific: g(t, "specific"), paraphrase: g(t, "paraphrase"), acct: g(a, "automated") };
+    });
+  },
   // D. Hand-weighted heuristics (no API)
   heur() {
     const out = {};
