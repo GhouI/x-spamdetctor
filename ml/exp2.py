@@ -15,6 +15,10 @@ dsplit = json.load(open(os.path.join(ROOT, "cache2-dec_split.json")))
 F, names = features(data)
 D = np.array([[logit(dec[r["id"]][k]) for k in ("choice", "text", "acct")] if r["id"] in dec else [0, 0, 0] for r in R], dtype=np.float32)
 S = np.array([[logit(dsplit[r["id"]].get(k, 0.5)) for k in ("promo", "generic", "specific", "paraphrase", "acct")] if r["id"] in dsplit else [0] * 5 for r in R], dtype=np.float32)
+dextra = json.load(open(os.path.join(ROOT, "cache2-dec_extra.json")))
+X_extra = np.array([[logit(dextra[r["id"]].get(k, 0.5)) for k in ("praise_only", "bio_promo", "brand", "ai_style")] if r["id"] in dextra else [0] * 4 for r in R], dtype=np.float32)
+dextra2 = json.load(open(os.path.join(ROOT, "cache2-dec_extra2.json")))
+X_extra2 = np.array([[logit(dextra2[r["id"]].get(k, 0.5)) for k in ("off_topic", "self_promo", "flattery", "link_seller")] if r["id"] in dextra2 else [0] * 4 for r in R], dtype=np.float32)
 threads_of = {}
 for r in R:
     threads_of.setdefault(r["user"]["id"], set()).add(r["focal"])
@@ -54,6 +58,15 @@ def run(name, X, kind):
 
 base = np.concatenate([F, D], 1)
 full = np.concatenate([F, D, S, X_multi], 1)
+full_x = np.concatenate([F, D, S, X_multi, X_extra], 1)
+full_x2 = np.concatenate([F, D, S, X_multi, X_extra, X_extra2], 1)
+if os.environ.get("EXTRA2"):
+    run("GBM + extra questions (current best)", full_x, "gbm")
+    run("GBM + extra + extra2 questions", full_x2, "gbm")
+if os.environ.get("EXTRA"):
+    run("GBM + split + multi (current best)", full, "gbm")
+    run("GBM + split + multi + extra questions", full_x, "gbm")
+    run("LR  + split + multi + extra questions", full_x, "lr")
 if not os.environ.get("CURVE"): run("LR  features+combo (previous best)", base, "lr")
 if not os.environ.get("CURVE"): run("LR  + split predicates + multi-thread", full, "lr")
 if not os.environ.get("CURVE"): run("GBM features+combo", base, "gbm")
@@ -97,7 +110,7 @@ if os.environ.get("ERRORS"):
 
 if os.environ.get("TEST"):
     test = [i for i, r in enumerate(R) if lab[r["id"]] in ("b", "l", "h") and r["focal"] in test_threads and r["id"] in dec]
-    for name, X in (("LR  features+combo", base), ("GBM + split + multi", full)):
+    for name, X in (("GBM + split + multi (round-1 best)", full), ("GBM + all questions (final)", full_x2)):
         sc = np.zeros(len(R), dtype=np.float32)
         for th in dev_threads:   # dev CV scores -> choose thresholds without touching TEST
             tr = [i for i in dev if R[i]["focal"] != th]; te = [i for i in dev if R[i]["focal"] == th]
