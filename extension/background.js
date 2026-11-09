@@ -7,7 +7,8 @@ const LABELS = {
   adult_spam: "Adult or 'check my bio' bait",
   engagement_bait: "Generic engagement-farming reply",
   ai_filler: "AI-generated filler",
-  promo_spam: "Unrelated promo / copy-paste spam"
+  promo_spam: "Unrelated promo / copy-paste spam",
+  automated_account: "Automated / engagement-farm account"
 };
 const CHOICES = [
   { value: "human", description: "Genuine person engaging with the post" },
@@ -15,19 +16,37 @@ const CHOICES = [
   { value: "adult_spam", description: "Adult/dating bait, check my bio, DM me" },
   { value: "engagement_bait", description: "Generic praise or reaction that ignores the post's specifics, e.g. Great post!, So true 🔥, Amazing!" },
   { value: "ai_filler", description: "AI-generated filler that just restates the post in polished generic language" },
-  { value: "promo_spam", description: "Unrelated self-promotion, links, follow-for-follow, copy-paste text" }
+  { value: "promo_spam", description: "Unrelated self-promotion, links, follow-for-follow, copy-paste text" },
+  { value: "automated_account", description: "Low-effort reply from an account whose stats look automated: very new account with huge post volume (hundreds of posts per day), follow-back farming (followers ≈ following, both large), or a brand-new default-avatar account with no followers" }
 ];
-const DECISION_INSTRUCTIONS = "Classify the reply. Short, rude, joking or opinionated on-topic replies are human. Pick a bot category only when the reply shows clear bot/spam signals.";
+const DECISION_INSTRUCTIONS = "Classify the reply. Short, rude, joking or opinionated on-topic replies are human. Pick a bot category only when the reply shows clear bot/spam signals. Use the author's account stats as supporting evidence: a substantive, specific reply is human even from a new or small account, and a paid checkmark is not proof of a human. When account stats are missing, judge from the text alone.";
+
+// "2023-04-07" style age + posting rate summary from X's user metadata (network path only).
+function describeAuthor(a) {
+  if (!a) return "unknown author";
+  const parts = [`${a.name || ""} ${a.handle || ""}`.trim()];
+  if (a.createdAt) {
+    const created = new Date(a.createdAt);
+    const days = Math.max(1, (Date.now() - created) / 864e5);
+    const age = days < 60 ? `${Math.round(days)} days` : days < 730 ? `${Math.round(days / 30)} months` : `${(days / 365).toFixed(1)} years`;
+    parts.push(`account created ${created.toISOString().slice(0, 10)} (${age} old)`);
+    if (a.posts != null) parts.push(`${a.posts.toLocaleString("en-US")} posts (~${Math.round(a.posts / days)}/day)`);
+  } else if (a.posts != null) parts.push(`${a.posts.toLocaleString("en-US")} posts`);
+  if (a.followers != null) parts.push(`${a.followers.toLocaleString("en-US")} followers, ${a.following?.toLocaleString("en-US")} following`);
+  if (a.premium != null) parts.push(`paid checkmark: ${a.premium ? "yes" : "no"}`);
+  if (a.defaultAvatar) parts.push("default profile picture");
+  if (a.createdAt) parts.push(a.bio ? `bio: "${a.bio.replace(/\s+/g, " ")}"` : "empty bio");
+  return parts.join("; ");
+}
 let decisionsUnavailable = false;
 
 async function decideOne(s, post, r) {
-  const who = `${r.author?.name || ""} ${r.author?.handle || ""}${r.author?.verified ? " (verified)" : ""}`.trim();
   const res = await fetch("https://api.openai.com/v1/decisions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.apiKey}` },
     body: JSON.stringify({
       model: s.model,
-      input: `Original post on X${post?.author?.handle ? " by " + post.author.handle : ""}:\n${post?.text || "(unknown)"}\n\nReply from ${who}:\n${r.text}`,
+      input: `Original post on X${post?.author?.handle ? " by " + post.author.handle : ""}:\n${post?.text || "(unknown)"}\n\nReply author: ${describeAuthor(r.author)}\n\nReply:\n${r.text}`,
       questions: [{ type: "choice", name: "kind", instructions: DECISION_INSTRUCTIONS, choices: CHOICES }]
     })
   });
@@ -40,13 +59,13 @@ async function decideOne(s, post, r) {
 
 async function classifyWithDecisions(s, post, replies) {
   const out = [];
-  for (let i = 0; i < replies.length; i += 6) // ~150ms each, 6 in parallel
-    out.push(...await Promise.all(replies.slice(i, i + 6).map(r => decideOne(s, post, r))));
+  for (let i = 0; i < replies.length; i += 10) // ~150ms each, 10 in parallel
+    out.push(...await Promise.all(replies.slice(i, i + 10).map(r => decideOne(s, post, r))));
   return out;
 }
 
 const SYSTEM_PROMPT = `You moderate replies on X (Twitter). For each reply decide whether it was most likely written by a bot, spam account, or automated/engagement-farming account.
-Strong bot signals: crypto/giveaway/airdrop/investment promotion; "check my bio/profile/pinned", DM-me, OnlyFans/adult links; generic praise that ignores the post ("Great post!", "So true 🔥", "This is insightful"); obvious AI-generated filler that restates the post; emoji-only or hashtag spam; copy-paste text unrelated to the conversation; handles like name+long digit strings combined with the above.
+Strong bot signals: crypto/giveaway/airdrop/investment promotion; "check my bio/profile/pinned", DM-me, OnlyFans/adult links; generic praise that ignores the post ("Great post!", "So true 🔥", "This is insightful"); obvious AI-generated filler that restates the post; emoji-only or hashtag spam; copy-paste text unrelated to the conversation; handles like name+long digit strings combined with the above. Replies may include author account stats (age, posts/day, followers/following, bio); treat extreme automation patterns as supporting evidence, never as proof on their own.
 Do NOT flag: short but on-topic human replies, jokes, disagreement, rudeness, typos, slang, or opinions you dislike. When unsure, give a low score.
 Return one result per reply id with bot_score from 0 (human) to 1 (certainly bot) and a very short reason.`;
 
@@ -93,5 +112,5 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
   }
-  if (msg.type === "settings") { getSettings().then(s => sendResponse({ enabled: s.enabled, mode: s.mode, hasKey: !!s.apiKey })); return true; }
+  if (msg.type === "settings") { getSettings().then(s => sendResponse({ enabled: s.enabled, mode: s.mode, threshold: s.threshold, hasKey: !!s.apiKey })); return true; }
 });
