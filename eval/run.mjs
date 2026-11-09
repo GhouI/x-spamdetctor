@@ -9,9 +9,9 @@ import vm from "vm";
 
 const DIR = new URL("./data/", import.meta.url);
 const KEY = process.env.OPENAI_API_KEY;
-const data = JSON.parse(fs.readFileSync(new URL("replies.json", DIR)));
+const data = JSON.parse(fs.readFileSync(new URL(process.env.DATA || "replies.json", DIR)));
 const R = data.replies;
-const NOW = Date.parse(data.collected);
+const NOW = data.collected ? Date.parse(data.collected) : Math.max(...data.replies.map(r => Date.parse(r.createdAt) || 0));
 
 // ---- load the extension's real background.js (describeAuthor, CHOICES, prompts) in a sandbox
 const ctx = { fetch, console, Date, chrome: { storage: { local: { get: async () => ({}) } }, runtime: { onMessage: { addListener() {} } } } };
@@ -27,7 +27,7 @@ const textOnly = t => t.replace(/https?:\/\/\S+/g, "").trim();
 const norm = t => textOnly(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 function cache(name) {
-  const f = new URL(`cache-${name}.json`, DIR);
+  const f = new URL(`${process.env.CACHE_PREFIX || "cache"}-${name}.json`, DIR);
   const c = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f)) : {};
   return { c, save: () => fs.writeFileSync(f, JSON.stringify(c)) };
 }
@@ -207,7 +207,7 @@ export { R, data, T, auc, atThreshold, recallAtFpr, days, norm, textOnly };
 if (import.meta.url === `file://${process.argv[1]}`) {
   const goldOnly = process.argv.includes("--gold");
   const want = process.argv.slice(2).filter(a => !a.startsWith("--"));
-  if (goldOnly) { const ids = new Set(JSON.parse(fs.readFileSync(new URL("gold-sample.json", DIR)))); R.splice(0, R.length, ...R.filter(r => ids.has(r.id))); }
+  if (goldOnly) { const ids = new Set(JSON.parse(fs.readFileSync(new URL(process.env.SUBSET || "gold-sample.json", DIR)))); R.splice(0, R.length, ...R.filter(r => ids.has(r.id))); }
   const names = want.length ? want : ["heur", "dup", "dec_text", "dec_meta", "dec_pred"];
   if (names.some(n => n.startsWith("dec") || n === "llm") && !KEY) { console.error("Set OPENAI_API_KEY"); process.exit(1); }
   for (const n of names) { const t0 = Date.now(); await T[n](); console.error(`${n} ready (${((Date.now() - t0) / 1000).toFixed(1)}s)`); }
